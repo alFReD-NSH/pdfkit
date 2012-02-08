@@ -130,9 +130,9 @@ module.exports =
         x += indent
         
         # flip coordinate system
-        y = @page.height - y - (@_font.ascender / 1000 * @_fontSize)
+        y = @page.height - y        
         
-        # add current font to page if necessary
+	# add current font to page if necessary
         @page.fonts[@_font.id] ?= @_font.ref
         
         # tell the font subset to use the characters
