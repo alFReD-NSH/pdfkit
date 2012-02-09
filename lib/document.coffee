@@ -176,12 +176,12 @@ class PDFDocument
         @haveTemp = true
         @isTemp = true
         
-    endTemp: ->
-        @temp.finalize true
-        @isTemp = false
-    
-    outputTemp: ->
-        delete @temp.stream
-        @temp
-        
+    endTemp: (cb) ->
+        @temp.finalize @compress, (err) =>
+            if (err)
+                return cb(err)
+            delete @temp.stream
+            @isTemp = false
+            cb(null, @temp)
+            
 module.exports = PDFDocument
