@@ -8,6 +8,7 @@ PDFObjectStore = require './store'
 PDFObject = require './object'
 PDFReference = require './reference'
 PDFPage = require './page'
+async = require 'async'
 
 class PDFDocument
     constructor: (@options = {}, temp) ->
@@ -95,28 +96,36 @@ class PDFDocument
     write: (filename, callback) ->
          fs.writeFile filename, @output(), 'binary', callback
         
-    output: ->
+    output: (cb) ->
        out = []
-       @finalize()
-       @generateHeader out
-       @generateBody out
-       @generateXRef out
-       @generateTrailer out
-       return out.join('\n')
+       @finalize (err, data) =>
+           if err
+               return cb err
+           @generateHeader out
+           @generateBody out
+           @generateXRef out
+           @generateTrailer out
+           cb null, out.join('\n')
         
-    finalize: ->
+    finalize: (cb) ->
         # convert strings in the info dictionary to literals
         for key, val of @info when typeof val is 'string'
             @info[key] = PDFObject.s val
         
-        # embed the subsetted fonts
-        for family, font of @_fontFamilies
-            font.embed()
         
-        # finalize each page
-        for page in @pages
-            page.finalize()
-        
+        async.parallel [
+            (cb) => 
+                # embed the subsetted fonts
+                async.forEach Object.keys(@_fontFamilies), (key, cb) =>
+                    @_fontFamilies[key].embed(cb);
+                , cb
+            , (cb) =>
+                # finalize each page
+                async.forEach @pages, (page, cb) =>
+                    page.finalize(cb)
+                , cb
+        ], cb 
+                    
     generateHeader: (out) ->
         # PDF version
         out.push "%PDF-#{@version}"

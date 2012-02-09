@@ -1,13 +1,17 @@
-fs = require 'fs'
-Data = '../data'
-zlib = require 'flate'
+zlib    = require 'zlib'
+async   = require 'async'
+Data    = '../data'
+
+###
+We had the same in image.coffee
+@open: (filename) ->
+contents = fs.readFileSync filename
+data = new Data(contents)
+new PNG(data)
+### 
 
 class PNG
-    @open: (filename) ->
-        contents = fs.readFileSync filename
-        data = new Data(contents)
-        new PNG(data)
-    
+
     constructor: (@data) ->
         data.pos = 8 # Skip the default header
         
@@ -84,7 +88,7 @@ class PNG
         
         return
         
-    object: (document) ->
+    object: (document, cb) ->
         obj = document.ref
             Type: 'XObject'
             Subtype: 'Image'
@@ -135,130 +139,157 @@ class PNG
             # Create a transparency SMask for the image based on the data 
             # in the PLTE and tRNS sections. See below for details on SMasks.
             @loadIndexedAlphaChannel()
-            
-        # For PNG color types 4 and 6, the transparency data is stored as a alpha
-        # channel mixed in with the main image data. Separate this data out into an
-        # SMask object and store it separately in the PDF.
-        if @hasAlphaChannel
-            @splitAlphaChannel()
-            obj.data['Length'] = @imgData.length
         
-        if @alphaChannel
-            sMask = document.ref
-                Type: 'XObject'
-                Subtype: 'Image'
-                Height: @height
-                Width: @width
-                BitsPerComponent: 8
-                Length: @alphaChannel.length
-                Filter: 'FlateDecode'
-                ColorSpace: 'DeviceGray'
-                Decode: [0, 1]
+        async.series [
+            (cb) =>
+                # For PNG color types 4 and 6, the transparency data is stored as a alpha
+                # channel mixed in with the main image data. Separate this data out into an
+                # SMask object and store it separately in the PDF.
+                if @hasAlphaChannel
+                    @splitAlphaChannel (err) =>
+                        if err
+                            return cb err
+                        obj.data['Length'] = @imgData.length
+                        cb null 
+                else 
+                    cb null
+            , (cb) =>
+                if @alphaChannel
+                    sMask = document.ref
+                        Type: 'XObject'
+                        Subtype: 'Image'
+                        Height: @height
+                        Width: @width
+                        BitsPerComponent: 8
+                        Length: @alphaChannel.length
+                        Filter: 'FlateDecode'
+                        ColorSpace: 'DeviceGray'
+                        Decode: [0, 1]
+                        
+                    sMask.add @alphaChannel
+                    obj.data['SMask'] = sMask
                 
-            sMask.add @alphaChannel
-            obj.data['SMask'] = sMask
+                # add the actual image data    
+                obj.add @imgData
+                cb(null)
+        ], (err) ->
+            cb err, obj
         
-        # add the actual image data    
-        obj.add @imgData
-        return obj
-        
-    decodePixels: ->
-        data = zlib.inflate @imgData
-        pixelBytes = @pixelBitlength / 8
-        scanlineLength = pixelBytes * @width
-
-        row = 0
-        pixels = []
-        length = data.length
-        pos = 0
-
-        while pos < length
-            filter = data[pos++]
-            i = 0
-            rowData = []
-
-            switch filter
-                when 0 # None
-                    while i < scanlineLength
-                        rowData[i++] = data[pos++]
-
-                when 1 # Sub
-                    while i < scanlineLength
-                        byte = data[pos++]
-                        left = if i < pixelBytes then 0 else rowData[i - pixelBytes]
-                        rowData[i++] = (byte + left) % 256
-
-                when 2 # Up
-                    while i < scanlineLength
-                        byte = data[pos++]
-                        col = (i - (i % pixelBytes)) / pixelBytes
-                        upper = if row is 0 then 0 else pixels[row - 1][col][i % pixelBytes]
-                        rowData[i++] = (upper + byte) % 256
-
-                when 3 # Average
-                    while i < scanlineLength
-                        byte = data[pos++]
-                        col = (i - (i % pixelBytes)) / pixelBytes
-                        left = if i < pixelBytes then 0 else rowData[i - pixelBytes]
-                        upper = if row is 0 then 0 else pixels[row - 1][col][i % pixelBytes]
-                        rowData[i++] = (byte + Math.floor((left + upper) / 2)) % 256
-
-                when 4 # Paeth
-                    while i < scanlineLength
-                        byte = data[pos++]
-                        col = (i - (i % pixelBytes)) / pixelBytes
-                        left = if i < pixelBytes then 0 else rowData[i - pixelBytes]
-
-                        if row is 0
-                            upper = upperLeft = 0
-                        else
-                            upper = pixels[row - 1][col][i % pixelBytes]
-                            upperLeft = if col is 0 then 0 else pixels[row - 1][col - 1][i % pixelBytes]
-
-                        p = left + upper - upperLeft
-                        pa = Math.abs(p - left)
-                        pb = Math.abs(p - upper)
-                        pc = Math.abs(p - upperLeft)
-
-                        if pa <= pb and pa <= pc
-                            paeth = left
-                        else if pb <= pc
-                            paeth = upper
-                        else
-                            paeth = upperLeft
-
-                        rowData[i++] = (byte + paeth) % 256
-
-                else
-                    throw new Error "Invalid filter algorithm: " + filter 
-
-            s = []
-            for i in [0...rowData.length] by pixelBytes
-                s.push rowData.slice(i, i + pixelBytes)
-
-            pixels.push(s)
-            row += 1
+    decodePixels: (cb) ->
+        zlib.inflate @imgData , (err, data) =>
+            if err
+                return cb err
             
-        return pixels
+            pixelBytes = @pixelBitlength / 8
+            scanlineLength = pixelBytes * @width
+    
+            row = 0
+            pixels = []
+            length = data.length
+            pos = 0
+    
+            while pos < length
+                filter = data[pos++]
+                i = 0
+                rowData = []
+    
+                switch filter
+                    when 0 # None
+                        while i < scanlineLength
+                            rowData[i++] = data[pos++]
+    
+                    when 1 # Sub
+                        while i < scanlineLength
+                            byte = data[pos++]
+                            left = if i < pixelBytes then 0 else rowData[i - pixelBytes]
+                            rowData[i++] = (byte + left) % 256
+    
+                    when 2 # Up
+                        while i < scanlineLength
+                            byte = data[pos++]
+                            col = (i - (i % pixelBytes)) / pixelBytes
+                            upper = if row is 0 then 0 else pixels[row - 1][col][i % pixelBytes]
+                            rowData[i++] = (upper + byte) % 256
+    
+                    when 3 # Average
+                        while i < scanlineLength
+                            byte = data[pos++]
+                            col = (i - (i % pixelBytes)) / pixelBytes
+                            left = if i < pixelBytes then 0 else rowData[i - pixelBytes]
+                            upper = if row is 0 then 0 else pixels[row - 1][col][i % pixelBytes]
+                            rowData[i++] = (byte + Math.floor((left + upper) / 2)) % 256
+    
+                    when 4 # Paeth
+                        while i < scanlineLength
+                            byte = data[pos++]
+                            col = (i - (i % pixelBytes)) / pixelBytes
+                            left = if i < pixelBytes then 0 else rowData[i - pixelBytes]
+    
+                            if row is 0
+                                upper = upperLeft = 0
+                            else
+                                upper = pixels[row - 1][col][i % pixelBytes]
+                                upperLeft = if col is 0 then 0 else pixels[row - 1][col - 1][i % pixelBytes]
+    
+                            p = left + upper - upperLeft
+                            pa = Math.abs(p - left)
+                            pb = Math.abs(p - upper)
+                            pc = Math.abs(p - upperLeft)
+    
+                            if pa <= pb and pa <= pc
+                                paeth = left
+                            else if pb <= pc
+                                paeth = upper
+                            else
+                                paeth = upperLeft
+    
+                            rowData[i++] = (byte + paeth) % 256
+    
+                    else
+                        throw new Error "Invalid filter algorithm: " + filter 
+    
+                s = []
+                for i in [0...rowData.length] by pixelBytes
+                    s.push rowData.slice(i, i + pixelBytes)
+    
+                pixels.push(s)
+                row += 1
+                
+            cb null, pixels
         
-    splitAlphaChannel: ->
-        pixels = @decodePixels()
+    splitAlphaChannel: (cb) ->
+        @decodePixels (err, pixels) =>
+            if err
+                return cb(err)
 
-        colorByteSize = @colors * @bits / 8
-        alphaByteSize = 1
-
-        pixelCount = @width * @height
-        imgData = new Buffer(pixelCount * colorByteSize)
-        alphaChannel = new Buffer(pixelCount)
-        
-        p = a = 0
-        for row in pixels
-            for pixel in row
-                imgData[p++] = pixel[i] for i in [0...colorByteSize]
-                alphaChannel[a++] = pixel[colorByteSize]
-        
-        @imgData = zlib.deflate imgData
-        @alphaChannel = zlib.deflate alphaChannel
+            colorByteSize = @colors * @bits / 8
+            alphaByteSize = 1
+    
+            pixelCount = @width * @height
+            imgData = new Buffer(pixelCount * colorByteSize)
+            alphaChannel = new Buffer(pixelCount)
+            
+            p = a = 0
+            for row in pixels
+                for pixel in row
+                    imgData[p++] = pixel[i] for i in [0...colorByteSize]
+                    alphaChannel[a++] = pixel[colorByteSize]
+            
+            async.parallel [
+                (cb) =>
+                    zlib.deflate imgData , (err, data) =>
+                        if (err)
+                            return cb(err)
+                        @imgData = data
+                        cb(null)
+                        
+                , (cb) =>
+                    zlib.deflate alphaChannel , (err, data) =>
+                        if (err)
+                            return cb(err)
+                        @alphaChannel = data
+                        cb(null);
+            ], cb
         
     decodePalette: ->
         palette = @palette

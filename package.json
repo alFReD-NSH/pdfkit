@@ -20,7 +20,7 @@
   },
   "dependencies": {
       "coffee-script": ">=1.0.1",
-      "flate": ">=1.0.2"
+      "async": ">=0.1.x"
   },
-  "engine": [ "node >= v0.4.0" ]
+  "engine": [ "node >= v0.6.0" ]
 }

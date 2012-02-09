@@ -2,7 +2,7 @@
 PDFPage - represents a single page in the PDF document
 By Devon Govett
 ###
-
+async = require 'async'
 class PDFPage
     constructor: (@document, options = {}) ->
         @size = options.size or "letter"
@@ -30,7 +30,7 @@ class PDFPage
         if @document.haveTemp
             contents = [@content, @document.temp] 
         else 
-            contents =  @content
+            contents =  [@content]
        
         # The page dictionary
         @dictionary = @document.ref
@@ -60,8 +60,8 @@ class PDFPage
     maxY: ->
         @height - @margins.bottom
         
-    finalize: ->
-        @content.finalize(@document.compress)
+    finalize: (cb) ->
+        @content.finalize @document.compress, cb
         
     DEFAULT_MARGINS = 
         top: 72

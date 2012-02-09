@@ -1,4 +1,4 @@
-fs = require 'fs'
+#fs = require 'fs'
 Data = require '../data'
 DFont = require './dfont'
 Directory = require './directory'

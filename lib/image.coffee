@@ -3,15 +3,14 @@ PDFImage - embeds images in PDF documents
 By Devon Govett
 ###
 
-fs = require 'fs'
 Data = require './data'
 JPEG = require './image/jpeg'
 PNG = require './image/png'
 
 class PDFImage
-    @open: (filename) ->
-        @contents = fs.readFileSync filename
-        return unless @contents
+    @open: (@contents) ->
+        
+        return null unless @contents
         
         @data = new Data @contents
         @filter = null
@@ -27,6 +26,6 @@ class PDFImage
             return new PNG(data)
             
         else
-            throw new Error 'Unknown image format.'
+            return null
                     
 module.exports = PDFImage

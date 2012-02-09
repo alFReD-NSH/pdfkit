@@ -1,12 +1,13 @@
-fs = require 'fs'
+#fs = require 'fs'
 Data = '../data'
-
+###
+@open: (filename) ->
+contents = fs.readFileSync filename
+data = new Data(contents)
+new JPEG(data)
+###
 class JPEG
-    @open: (filename) ->
-        contents = fs.readFileSync filename
-        data = new Data(contents)
-        new JPEG(data)
-    
+
     constructor: (@data) ->
         len = data.length
         
@@ -36,7 +37,7 @@ class JPEG
             
         @imgData = @data
         
-    object: (document) ->
+    object: (document, cb) ->
         obj = document.ref
             Type: 'XObject'
             Subtype: 'Image'
@@ -54,6 +55,6 @@ class JPEG
             obj.data['Decode'] = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
             
         obj.add @data.data
-        return obj
+        cb null, obj #this function is sync, but same function in PNG is async, made async like for consistency
         
 module.exports = JPEG
