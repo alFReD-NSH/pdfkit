@@ -28,7 +28,7 @@ class PDFPage
         @content = @document.ref()
         
         if @document.haveTemp
-            contents = [@content, @document.temp] 
+            contents = [@document.temp, @content] 
         else 
             contents =  [@content]
        
